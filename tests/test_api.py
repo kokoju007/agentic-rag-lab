@@ -1,24 +1,41 @@
-from fastapi.testclient import TestClient
+import httpx
+import pytest
 
 from app.main import app
 
 
-client = TestClient(app)
+transport = httpx.ASGITransport(app=app)
 
 
-def test_health() -> None:
-    response = client.get("/health")
+@pytest.mark.anyio
+async def test_health() -> None:
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/health")
     assert response.status_code == 200
     payload = response.json()
     assert "status" in payload
 
 
-def test_ask() -> None:
-    response = client.post("/ask", json={"question": "테스트"})
+@pytest.mark.anyio
+async def test_ask_routes_to_doc_search() -> None:
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/ask", json={"question": "Day-1 /ask 엔드포인트가 뭐야?"})
     assert response.status_code == 200
     payload = response.json()
+    assert payload["chosen_agent"] == "doc_search"
     assert "answer" in payload
-    assert "citations" in payload
-    assert "trace_id" in payload
+    assert isinstance(payload["evidence"], list)
+    assert len(payload["evidence"]) >= 1
     assert isinstance(payload["citations"], list)
-    assert len(payload["citations"]) >= 2
+
+
+@pytest.mark.anyio
+async def test_ask_routes_to_direct_answer() -> None:
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/ask", json={"question": "FastAPI가 뭐야?"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["chosen_agent"] == "direct_answer"
+    assert "answer" in payload
+    assert isinstance(payload["evidence"], list)
+    assert isinstance(payload["citations"], list)
